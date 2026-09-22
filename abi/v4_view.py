@@ -1,0 +1,27 @@
+V4_STATE_VIEW_ABI = [
+    {
+        "inputs": [
+            {"internalType": "PoolId", "name": "poolId", "type": "bytes32"}
+        ],
+        "name": "getSlot0",
+        "outputs": [
+            {"internalType": "uint160", "name": "sqrtPriceX96", "type": "uint160"},
+            {"internalType": "int24", "name": "tick", "type": "int24"},
+            {"internalType": "uint24", "name": "protocolFee", "type": "uint24"},
+            {"internalType": "uint24", "name": "lpFee", "type": "uint24"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [
+            {"internalType": "PoolId", "name": "poolId", "type": "bytes32"}
+        ],
+        "name": "getLiquidity",
+        "outputs": [
+            {"internalType": "uint128", "name": "liquidity", "type": "uint128"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
