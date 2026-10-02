@@ -433,6 +433,104 @@ class Binance:
 
         return result
 
+    # ==========================================
+    # STOP ORDERS (лестница)
+    #
+    # С 09.12.2025 Binance принимает условные ордера
+    # (STOP_MARKET и т.п.) только через Algo API:
+    # /fapi/v1/order отвечает -4120.
+    # ==========================================
+
+    def get_open_stops(self, symbol):
+
+        orders = self._request(
+            "GET",
+            "/fapi/v1/openAlgoOrders",
+            {"symbol": symbol},
+            signed=True
+        )
+
+        return [
+            {
+                "id": o["algoId"],
+                "client_id": o.get("clientAlgoId") or "",
+                "side": o["side"],
+                "qty": Decimal(o["quantity"]),
+                "trigger": Decimal(o["triggerPrice"]),
+            }
+            for o in orders
+            if o.get("orderType") == "STOP_MARKET"
+        ]
+
+    def place_stop(
+        self,
+        symbol,
+        side,
+        qty,
+        trigger_price,
+        client_id,
+        reduce_only,
+        working_type="CONTRACT_PRICE",
+        price_protect=True
+    ):
+
+        params = {
+            "algoType": "CONDITIONAL",
+            "symbol": symbol,
+            "side": side,
+            "type": "STOP_MARKET",
+            "quantity": str(qty),
+            "triggerPrice": str(trigger_price),
+            "workingType": working_type,
+            "priceProtect": "true" if price_protect else "false",
+            "clientAlgoId": client_id,
+        }
+
+        if reduce_only:
+            params["reduceOnly"] = "true"
+
+        if not self.live_trading:
+            logger.info(f"[DRY RUN] PLACE STOP {params}")
+            return params
+
+        result = self._request(
+            "POST",
+            "/fapi/v1/algoOrder",
+            params,
+            signed=True
+        )
+
+        trade_logger.info(
+            f"PLACE_STOP exchange=BINANCE symbol={symbol} "
+            f"side={side} qty={qty} trigger={trigger_price} "
+            f"algoId={result.get('algoId')}"
+        )
+
+        return result
+
+    def cancel_stop(self, symbol, stop_id):
+
+        if not self.live_trading:
+            logger.info(f"[DRY RUN] CANCEL STOP {symbol} {stop_id}")
+            return None
+
+        return self._request(
+            "DELETE",
+            "/fapi/v1/algoOrder",
+            {"algoId": stop_id},
+            signed=True
+        )
+
+    def get_book(self, symbol):
+
+        response = self._request(
+            "GET",
+            BOOK_TICKER_ENDPOINT,
+            {"symbol": symbol}
+        )
+
+        return float(response["bidPrice"]), float(response["askPrice"])
+
     def get_price_with_buffer(self, symbol, side, buffer_pct):
         """
         Возвращает цену для IOC LIMIT ордера с буфером в вашу пользу
@@ -443,14 +541,7 @@ class Binance:
         side: "SELL" (открытие/увеличение шорта) или "BUY" (закрытие/уменьшение шорта)
         buffer_pct: например 0.003 = 0.3%
         """
-        response = self._request(
-            "GET",
-            BOOK_TICKER_ENDPOINT,
-            {"symbol": symbol}
-        )
-
-        bid_price = float(response["bidPrice"])
-        ask_price = float(response["askPrice"])
+        bid_price, ask_price = self.get_book(symbol)
         mid_price = (bid_price + ask_price) / 2
 
         if side == "SELL":

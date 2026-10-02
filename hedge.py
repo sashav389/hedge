@@ -32,15 +32,22 @@ class Hedge:
             "deviation": deviation,
         }
 
-    def rebalance(self, lp_amount):
+    def rebalance(self, lp_amount, min_delta=None):
         result = self.calculate(lp_amount)
         delta = result["delta"]
         deviation = result["deviation"]
 
         # =========================
         # THRESHOLD
+        # min_delta - абсолютный порог в токенах (для лестницы),
+        # иначе относительный self.threshold
         # =========================
-        if deviation < self.threshold:
+        if min_delta is not None:
+            skip = abs(delta) < min_delta
+        else:
+            skip = deviation < self.threshold
+
+        if skip:
             result["action"] = "NOTHING"
             result["amount"] = 0
             return result

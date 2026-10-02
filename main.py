@@ -37,6 +37,8 @@ from exchanges.binance import Binance
 
 from hedge import Hedge
 
+from ladder import Ladder
+
 from rpc import RPC
 
 from uniswap.positions import V3Position
@@ -81,6 +83,12 @@ POOLS = [
         "exchange": "binance",
 
         "position_manager": V3_POSITION_MANAGER_BSC,
+
+        # лестница стоп-ордеров, см. ladder.py
+        "ladder": {
+            "enabled": False,
+            "dry_run": True,
+        },
     },
 
 
@@ -103,6 +111,11 @@ POOLS = [
         "exchange": "aster",
 
         "position_manager": V3_POSITION_MANAGER_BSC,
+
+        "ladder": {
+            "enabled": False,
+            "dry_run": True,
+        },
     },
 
 ]
@@ -205,6 +218,26 @@ async def watch_pool(config):
 
 
     # ========================================================
+    # LADDER
+    # ========================================================
+
+    ladder = None
+
+    ladder_config = config.get("ladder", {})
+
+    if ladder_config.get("enabled"):
+
+        ladder = Ladder(
+            name,
+            exchange,
+            hedge,
+            symbol,
+            pool.fee(),
+            ladder_config
+        )
+
+
+    # ========================================================
     # POSITION CACHE
     # ========================================================
 
@@ -236,6 +269,14 @@ async def watch_pool(config):
         position_cache["token1"] = (
             position_info["token1"]
         )
+
+        if ladder is not None:
+
+            ladder.set_position(
+                position_cache["liquidity"],
+                position_cache["tick_lower"],
+                position_cache["tick_upper"]
+            )
 
 
         print()
@@ -269,6 +310,15 @@ async def watch_pool(config):
     # ========================================================
 
     refresh_position()
+
+
+    if ladder is not None:
+
+        ladder.set_pool_price(
+            pool.slot0()[0]
+        )
+
+        ladder.resync()
 
 
     # ========================================================
@@ -351,6 +401,19 @@ async def watch_pool(config):
             # HEDGE
             # =================================================
 
+            if ladder is not None and not ladder.dry_run:
+
+                # живая лестница сама сверяет шорт
+                # и перевыставляет стопы
+                ladder.on_swap(
+                    sqrt_price_x96
+                )
+
+                print("=" * 70)
+
+                return
+
+
             hedge_result = hedge.rebalance(
                 amount0
             )
@@ -398,6 +461,13 @@ async def watch_pool(config):
             print("=" * 70)
 
 
+            if ladder is not None:
+
+                ladder.on_swap(
+                    sqrt_price_x96
+                )
+
+
         except Exception as e:
 
             print()
@@ -435,6 +505,43 @@ async def watch_pool(config):
 
         ],
     }
+
+
+    # ========================================================
+    # LADDER RESYNC
+    #
+    # перевыставляет стопы по таймеру: после срабатывания
+    # стопа своп в пуле может прийти не сразу (или не прийти)
+    # ========================================================
+
+    async def ladder_loop():
+
+        while True:
+
+            await asyncio.sleep(
+                ladder.resync_sec
+            )
+
+            try:
+
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    ladder.resync
+                )
+
+            except Exception as e:
+
+                print(
+                    f"[{name}] LADDER ERROR:",
+                    e
+                )
+
+
+    if ladder is not None:
+
+        ladder_task = asyncio.create_task(
+            ladder_loop()
+        )
 
 
     # ========================================================

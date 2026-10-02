@@ -159,3 +159,63 @@ def format_amount(amount, decimals=18):
     """
 
     return amount / (10 ** decimals)
+
+# ============================================================
+# FLOAT-ХЕЛПЕРЫ ДЛЯ ЛЕСТНИЦЫ
+#
+# Цены и количества в "человеческих" единицах:
+# price = token1 за 1 token0, amount0 = токены token0.
+# ============================================================
+
+def sqrt_price_x96_to_price(sqrt_price_x96, dec0=18, dec1=18):
+    return (sqrt_price_x96 / Q96) ** 2 * 10 ** (dec0 - dec1)
+
+
+def _range_sqrt(tick_lower, tick_upper):
+    return (
+        tick_to_sqrt_price_x96(tick_lower) / Q96,
+        tick_to_sqrt_price_x96(tick_upper) / Q96,
+    )
+
+
+def amount0_at_price(liquidity, price, tick_lower, tick_upper, dec0=18, dec1=18):
+    """
+    Сколько token0 будет в позиции при цене price.
+    x = L * (1/√P - 1/√Pu), с зажимом по границам диапазона.
+    """
+
+    s_lower, s_upper = _range_sqrt(tick_lower, tick_upper)
+
+    s = (price * 10 ** (dec1 - dec0)) ** 0.5
+    s = min(max(s, s_lower), s_upper)
+
+    return liquidity * (1 / s - 1 / s_upper) / 10 ** dec0
+
+
+def max_amount0(liquidity, tick_lower, tick_upper, dec0=18):
+    """
+    token0 в позиции, когда цена ниже диапазона (вся позиция в token0).
+    """
+
+    s_lower, s_upper = _range_sqrt(tick_lower, tick_upper)
+
+    return liquidity * (1 / s_lower - 1 / s_upper) / 10 ** dec0
+
+
+def price_at_amount0(liquidity, amount0, tick_lower, tick_upper, dec0=18, dec1=18):
+    """
+    Обратная к amount0_at_price: при какой цене в позиции
+    останется amount0 токенов token0.
+    1/√P = x/L + 1/√Pu
+    """
+
+    s_lower, s_upper = _range_sqrt(tick_lower, tick_upper)
+
+    x_raw = min(
+        max(amount0 * 10 ** dec0, 0),
+        liquidity * (1 / s_lower - 1 / s_upper)
+    )
+
+    s = 1 / (x_raw / liquidity + 1 / s_upper)
+
+    return s ** 2 * 10 ** (dec0 - dec1)
